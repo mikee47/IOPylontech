@@ -21,6 +21,7 @@
 
 #include <IO/RS485/Request.h>
 #include "Device.h"
+#include "Tables.h"
 
 namespace IO::RS485::Pylontech
 {
@@ -36,17 +37,49 @@ public:
 		return static_cast<Device&>(device);
 	}
 
-	void setResponse(const void* buffer, size_t length);
-
 	void getJson(JsonObject json) const override;
 
+	/**
+	 * @brief Identifies which battery to talk to
+	 * @param node DevNode_ALL or 0 implies a 'PWR' command, otherwise 'BAT'
+	 *
+	 * PWR contains summary information for all batteries
+	 * BAT obtains details for a specific battery
+	 */
 	bool setNode(DevNode node) override
 	{
+		this->node = node.id;
 		return true;
 	}
 
+	/**
+	 * @brief Provide an arbitrary command line
+	 */
+	void setCmdLine(const String& s)
+	{
+		cmdline = s;
+		setCommand(Command::undefined);
+	}
+
+	String getCmdLine() const;
+
+	/**
+	 * @brief Parse serial response into a table
+	 */
+	ErrorCode processResponse(ResponseReader reader);
+
+	/**
+	 * @brief Get the parsed table response
+	 */
+	const Table& getTable() const
+	{
+		return table;
+	}
+
 private:
-	String response;
+	String cmdline;
+	DevNode::ID node{};
+	Table table;
 };
 
 } // namespace IO::RS485::Pylontech

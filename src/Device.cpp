@@ -26,15 +26,27 @@ const Device::Factory Device::factory;
 
 ErrorCode Device::init(const Config& config)
 {
-	auto& ctrl = static_cast<IO::RS485::Controller&>(controller);
-	ctrl.getSerial().resizeBuffers(256, 256);
-	return IO::RS485::Device::init(config);
+	auto err = RS485::Device::init(config);
+	if(err) {
+		return err;
+	}
+
+	// Prepare UART for comms - port isn't shared so only need to do this once
+	IO::Serial::Config cfg{
+		.baudrate = baudrate(),
+		.format = UART_8N1,
+	};
+	auto& serial = getController().getSerial();
+	serial.resizeBuffers(2800, 0);
+	serial.setConfig(cfg);
+
+	return Error::success;
 }
 
-ErrorCode Device::init(JsonObjectConst config)
+ErrorCode Device::init(JsonObjectConst json)
 {
 	Config cfg{};
-	parseJson(config, cfg);
+	parseJson(json, cfg);
 	return init(cfg);
 }
 
@@ -53,9 +65,8 @@ void Device::handleEvent(IO::Request* request, Event event)
 		ErrorCode err = execute(req);
 		if(err != Error::pending) {
 			request->complete(err);
-			return;
 		}
-		break;
+		return;
 	}
 
 	case Event::ReceiveComplete: {
@@ -79,32 +90,19 @@ void Device::handleEvent(IO::Request* request, Event event)
 
 ErrorCode Device::execute(Request* request)
 {
-	String cmd = F("~200246470000FDA7\r");
-
-	// Prepare UART for comms
-	IO::Serial::Config cfg{
-		.baudrate = baudrate(),
-		.format = UART_8N1,
-	};
+	// Issue the request
 	auto& serial = getController().getSerial();
-	serial.setConfig(cfg);
-	serial.clear();
-
-	// OK, issue the request
-	getController().send(cmd.c_str(), cmd.length());
-	request->setResponse("empty", 5);
+	String cmd = request->getCmdLine();
+	serial.write(cmd.c_str(), cmd.length());
+	serial.write("\r", 1);
 	return Error::pending;
 }
 
 ErrorCode Device::readResponse(Request* request)
 {
-	// Read packet
 	auto& serial = getController().getSerial();
-	uint8_t buffer[256];
-	auto receivedSize = serial.read(buffer, sizeof(buffer));
-	request->setResponse(buffer, receivedSize);
-
-	return Error::success;
+	auto reader = [&serial](char* buffer, size_t len) { return serial.read(buffer, len); };
+	return request->processResponse(reader);
 }
 
 } // namespace IO::RS485::Pylontech

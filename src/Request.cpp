@@ -22,14 +22,54 @@
 
 namespace IO::RS485::Pylontech
 {
-void Request::setResponse(const void* buffer, size_t length)
+String Request::getCmdLine() const
 {
-    response.setString(static_cast<const char*>(buffer), length);
+	if(getCommand() != Command::query) {
+		return cmdline;
+	}
+
+	if(node == DevNode_ALL.id || node == 0) {
+		return "pwr";
+	}
+
+	return String("bat ") + node;
+}
+
+ErrorCode Request::processResponse(ResponseReader reader)
+{
+	if(getCommand() != Command::query) {
+		// Use cmdline
+		return Error::success;
+	}
+
+	if(node == DevNode_ALL.id || node == 0) {
+		processResponseTable(reader, table, false);
+		return fixupTablePwr(table) ? Error::success : Error::bad_size;
+	}
+
+	processResponseTable(reader, table, true);
+	return fixupTableBat(table) ? Error::success : Error::bad_size;
 }
 
 void Request::getJson(JsonObject json) const
 {
-    json["response"] = response;
+	RS485::Request::getJson(json);
+	if(!table.headings) {
+		return;
+	}
+	auto response = json.createNestedObject("response");
+
+	auto getCols = [](const CStringArray& row) {
+		auto& rs = reinterpret_cast<const String&>(row);
+		int i = rs.indexOf('\0');
+		String s = rs.substring(i + 1, rs.length());
+		s.replace('\0', ',');
+		return s;
+	};
+	response["headings"] = getCols(table.headings);
+	for(auto row : table.rows) {
+		response[String(row[0])] = getCols(row);
+	}
 }
 
 } // namespace IO::RS485::Pylontech
